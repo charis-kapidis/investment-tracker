@@ -7,3 +7,5 @@ data/
 # Ignore notebooks that create transaction files
 notebooks/transaction_file_creator/
 
+# Ignore pychache folders
+__pycache__/

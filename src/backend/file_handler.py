@@ -1,6 +1,8 @@
 from pathlib import Path
 import pandas as pd
 import time
+import logging
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,15 +49,19 @@ REQUIRED_DATA_VALIDITY_RULES = {
 }
 
 
-def load_transactional_data(filename: str):
+logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
+
+
+def load_raw_data(filename: str):
     data_folder = "data"
     file_path = PROJECT_ROOT / data_folder / "raw" / filename
     try:
         data = pd.read_csv(file_path)
-        print("✅ File loaded successfully!\n")
-        return data
     except Exception as e:
         print(f"❌ Error: {e}")
+
+    print("✅ File loaded successfully!\n")
+    return data
 
 
 def check_required_columns(data: pd.DataFrame):
@@ -115,6 +121,9 @@ def check_data_validity(data: pd.DataFrame):
     return data
 
 
+def load_transactional_data(filename: str):
+    pass
+
 if __name__ == "__main__":
     filename = "portfolio - portfolio.csv"
 
@@ -122,3 +131,91 @@ if __name__ == "__main__":
     data = check_required_columns(data)
     data = check_data_types(data)
     data = check_data_validity(data)
+
+
+
+
+
+
+import pandas as pd
+import os
+import logging
+
+# Ρύθμιση του logger για την καταγραφή σφαλμάτων
+logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
+
+def load_transactions(filepath: str) -> pd.DataFrame:
+    """
+    Διαβάζει, καθαρίζει και επικυρώνει το CSV των συναλλαγών.
+    
+    Args:
+        filepath (str): Η διαδρομή για το αρχείο CSV.
+        
+    Returns:
+        pd.DataFrame: Ένα καθαρό dataframe έτοιμο για ανάλυση.
+    """
+    # 1. Έλεγχος αν υπάρχει το αρχείο (ή αν το αντικείμενο είναι file-like object από το Streamlit)
+    if isinstance(filepath, str) and not os.path.exists(filepath):
+        raise FileNotFoundError(f"Το αρχείο δεν βρέθηκε στη διαδρομή: {filepath}")
+
+    # 2. Φόρτωση δεδομένων
+    try:
+        df = pd.read_csv(filepath)
+    except Exception as e:
+        raise ValueError(f"Σφάλμα κατά την ανάγνωση του CSV: {e}")
+
+    # 3. Καθαρισμός ονομάτων στηλών (αφαίρεση κενών)
+    df.columns = df.columns.str.strip()
+
+    # Ορίζουμε τις στήλες που περιμένουμε υποχρεωτικά
+    required_columns = ['Date', 'Ticker', 'Action', 'Quantity', 'Price', 'Fees']
+    missing_cols = [col for col in required_columns if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Λείπουν οι εξής υποχρεωτικές στήλες από το CSV: {missing_cols}")
+
+    # 4. Data Cleaning & Type Casting
+    
+    # Μετατροπή ημερομηνίας σε datetime object
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+    
+    # Καθαρισμός Ticker: Αφαίρεση κενών και μετατροπή σε κεφαλαία
+    df['Ticker'] = df['Ticker'].astype(str).str.strip().str.upper()
+    
+    # Καθαρισμός Action (Buy/Sell): Αφαίρεση κενών και μετατροπή σε κεφαλαία
+    df['Action'] = df['Action'].astype(str).str.strip().str.upper()
+    
+    # Αριθμητικές στήλες: Μετατροπή σε float και χειρισμός μη έγκυρων τιμών
+    df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce')
+    df['Price'] = pd.to_numeric(df['Price'], errors='coerce')
+    
+    # Αν τα Fees είναι κενά (NaN), τα κάνουμε 0.0 αντί να πετάξουμε τη γραμμή
+    df['Fees'] = pd.to_numeric(df['Fees'], errors='coerce').fillna(0.0)
+
+    # 5. Validation: Αφαίρεση γραμμών με κρίσιμα κενά (π.χ. χωρίς τιμή, ποσότητα ή ημερομηνία)
+    initial_rows = len(df)
+    df = df.dropna(subset=['Date', 'Ticker', 'Action', 'Quantity', 'Price'])
+    dropped_rows = initial_rows - len(df)
+    if dropped_rows > 0:
+        logging.warning(f"Αφαιρέθηκαν {dropped_rows} γραμμές λόγω ελλιπών βασικών δεδομένων (NaNs).")
+
+    # 6. Ταξινόμηση χρονολογικά (Κρίσιμο για τον αλγόριθμο FIFO)
+    df = df.sort_values(by=['Ticker', 'Date']).reset_index(drop=True)
+
+    return df
+
+
+# --- Block δοκιμής (Εκτελείται μόνο αν τρέξεις απευθείας το αρχείο από το terminal) ---
+if __name__ == "__main__":
+    # Προσπαθούμε να βρούμε το αρχείο είτε τρέχουμε από το root είτε από τον φάκελο backend
+    test_filepath = "../../data/raw/transactions.csv" 
+    if not os.path.exists(test_filepath):
+        test_filepath = "data/raw/transactions.csv"
+        
+    try:
+        clean_df = load_transactions(test_filepath)
+        print("✅ Το αρχείο φορτώθηκε και καθαρίστηκε επιτυχώς!\n")
+        print(clean_df.info())
+        print("\n--- Προεπισκόπηση Δεδομένων ---")
+        print(clean_df)
+    except Exception as e:
+        print(f"❌ Σφάλμα: {e}")
