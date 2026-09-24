@@ -314,6 +314,12 @@ def calc_asset_annualized_gain(assets_df: pd.DataFrame, transaction_df: pd.DataF
         current_value = df_row['Current Market Value']
         
         asset_trx = transaction_df[transaction_df['Ticker'] == asset]
+
+        first_trx_date = pd.to_datetime(asset_trx['Transaction Date'].min())
+        today = pd.Timestamp.today()
+        if (today - first_trx_date).days < 365:
+            return np.nan
+
         dates = list(asset_trx['Transaction Date'])
         amounts = []
         
