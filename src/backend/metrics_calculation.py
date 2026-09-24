@@ -1,12 +1,85 @@
 import pandas as pd
 import numpy as np
+from pyxirr import xirr
 
 
+LOT_COLUMNS = [
+    'Ticker', 
+    'Status',
+    'Buy Date',
+    'Initial Quantity',
+    'Buy Price',
+    'Total Cost',
+    'Current Quantity',
+    'Current Market Value',
+    'Buy Fee',
+    'Sell Fee',
+    'Total Fees',
+    'Realized PnL', 
+    'Realized PnL %',
+    'Unrealized PnL',
+    'Unrealized PnL %',
+    'Total PnL',
+    'Total ROI %',
+    'Annualized Gain %',
+    'Days Held', 
+]
+
+LOT_COLUMNS_ROUNDING = [
+    'Buy Price',
+    'Total Cost',
+    'Current Market Value',
+    'Buy Fee',
+    'Sell Fee',
+    'Total Fees',
+    'Realized PnL', 
+    'Realized PnL %',
+    'Unrealized PnL',
+    'Unrealized PnL %',
+    'Total PnL',
+    'Total ROI %',
+    'Annualized Gain %',
+]
+
+
+ASSET_COLUMNS = [
+    'Ticker', 
+    'Current Quantity',
+    'Total Cost',
+    'Current Market Value',
+    'Realized PnL',
+    'Realized PnL %',
+    'Unrealized PnL',
+    'Unrealized PnL %',
+    'Average Entry Price',
+    'Total Fees',
+    'Percentage of Portfolio',
+    'Total Return %',
+    'Annualized Gain %'
+]
+
+ASSET_COLUMNS_ROUNDING = [
+    'Total Cost',
+    'Current Market Value',
+    'Realized PnL',
+    'Realized PnL %',
+    'Unrealized PnL',
+    'Unrealized PnL %',
+    'Average Entry Price',
+    'Total Fees',
+    'Percentage of Portfolio',
+    'Total Return %',
+    'Annualized Gain %'
+]
+
+
+######################  Transaction Level Metrics  ######################
 def transaction_level_metrics(transaction_data: pd.DataFrame, current_prices: pd.DataFrame):
     transaction_data_full = transaction_data.merge(current_prices, how="left", on="Ticker").fillna(0.0)
     return transaction_data_full
 
 
+######################      Lot Level Metrics      ######################
 def calculate_lots(transaction_data: pd.DataFrame):
     transactions_dict = transaction_data\
         .sort_values(by="Transaction Date")\
@@ -149,6 +222,16 @@ def calc_realized_pnl_pct(lots_df: pd.DataFrame) -> pd.Series:
     return np.where(cost_of_sold > 0, (lots_df["Realized PnL"] / cost_of_sold) * 100, np.nan)
 
 
+def clean_lot_columns(lots_df: pd.DataFrame):
+    return lots_df[LOT_COLUMNS]
+
+
+def round_lot_data(lots_df: pd.DataFrame):
+    lots_df[LOT_COLUMNS_ROUNDING] = lots_df[LOT_COLUMNS_ROUNDING].apply(pd.to_numeric, errors='raise')
+    lots_df[LOT_COLUMNS_ROUNDING] = lots_df[LOT_COLUMNS_ROUNDING].round(3)
+    return lots_df
+
+
 def lot_level_metrics(transaction_data: pd.DataFrame, current_prices: pd.DataFrame):
     lots = calculate_lots(transaction_data)
     lots["Total Fees"] = calc_total_fees(lots)
@@ -161,6 +244,122 @@ def lot_level_metrics(transaction_data: pd.DataFrame, current_prices: pd.DataFra
     lots["Annualized Gain %"] = calc_annualized_gain(lots)
     lots["Unrealized PnL %"] = calc_unrealized_pnl_pct(lots)
     lots["Realized PnL %"] = calc_realized_pnl_pct(lots)
+    lots = clean_lot_columns(lots)
+    lots = round_lot_data(lots)
     return lots
 
 
+######################     Asset Level Metrics     ######################
+def calc_cost_of_sold(lots_df: pd.DataFrame):
+    return ((lots_df["Initial Quantity"] - lots_df["Current Quantity"]) * lots_df["Buy Price"]) + \
+        (lots_df["Buy Fee"] * ((lots_df["Initial Quantity"] - lots_df["Current Quantity"]) / lots_df["Initial Quantity"])) + \
+        lots_df["Sell Fee"]
+
+
+def calc_cost_of_remaining(lots_df: pd.DataFrame):
+    return (lots_df["Current Quantity"] * lots_df["Buy Price"]) + \
+    (lots_df["Buy Fee"] * (lots_df["Current Quantity"] / lots_df["Initial Quantity"]))
+
+
+def calc_raw_remaining_cost(lots_df: pd.DataFrame):
+    return lots_df["Current Quantity"] * lots_df["Buy Price"]
+
+
+def add_required_calculated_columns(lots_df: pd.DataFrame):
+    lots_df['Cost Of Sold'] = calc_cost_of_sold(lots_df)
+    lots_df['Cost Of Remaining'] = calc_cost_of_remaining(lots_df)
+    lots_df['Raw Remaining Cost'] = calc_raw_remaining_cost(lots_df)
+    return lots_df
+
+
+def aggregate_on_assets(lots_df: pd.DataFrame):
+    aggs = {
+        'Total Fees': ('Total Fees', 'sum'),
+        'Total Cost': ('Total Cost', 'sum'),
+        'Current Market Value': ('Current Market Value', 'sum'),
+        'Realized PnL': ('Realized PnL', 'sum'),
+        'Unrealized PnL': ('Unrealized PnL', 'sum'),
+        'Current Quantity': ('Current Quantity', 'sum'),
+        'Cost Of Remaining': ('Cost Of Remaining', 'sum'),
+        'Cost Of Sold': ('Cost Of Sold', 'sum'),
+        'Raw Remaining Cost': ('Raw Remaining Cost', 'sum')
+    }
+    return lots_df.groupby("Ticker").agg(**aggs).reset_index(drop=False)
+
+
+def calc_asset_realized_pnl_pct(assets_df: pd.DataFrame):
+    return ((assets_df['Realized PnL'] / assets_df['Cost Of Sold'].replace(0, np.nan)) * 100).replace(np.nan, 0)
+
+
+def calc_asset_unrealized_pnl_pct(assets_df: pd.DataFrame):
+    return ((assets_df['Unrealized PnL'] / assets_df['Cost Of Remaining'].replace(0, np.nan)) * 100).replace(np.nan, 0)
+
+
+def calc_asset_total_return_pct(assets_df: pd.DataFrame):
+    return (((assets_df['Realized PnL'] + assets_df['Unrealized PnL']) / assets_df['Total Cost'].replace(0, np.nan)) * 100).replace(np.nan, 0)
+
+
+def calc_asset_average_entry_price(assets_df: pd.DataFrame):
+    return (assets_df['Raw Remaining Cost'] / assets_df['Current Quantity'].replace(0, np.nan)).replace(np.nan, 0)
+
+
+def calc_asset_portfolio_pct(assets_df: pd.DataFrame):
+    return ((assets_df['Current Market Value'] / assets_df['Current Market Value'].sum()) * 100 if assets_df['Current Market Value'].sum() != 0 else 0).replace(np.nan, 0)
+
+
+def calc_asset_annualized_gain(assets_df: pd.DataFrame, transaction_df: pd.DataFrame):
+
+    def _calc_asset_xirr(df_row):
+        asset = df_row['Ticker']
+        current_value = df_row['Current Market Value']
+        
+        asset_trx = transaction_df[transaction_df['Ticker'] == asset]
+        dates = list(asset_trx['Transaction Date'])
+        amounts = []
+        
+        for _, trx_row in asset_trx.iterrows():
+            fee = trx_row.get('Fee', 0.0)
+            if trx_row['Transaction Type'].upper() == 'BUY':
+                amounts.append(-(trx_row['Quantity'] * trx_row['Transaction Price'] + fee))
+            elif trx_row['Transaction Type'].upper() == 'SELL':
+                amounts.append((trx_row['Quantity'] * trx_row['Transaction Price'] - fee))
+                
+        dates.append(pd.Timestamp.today())
+        amounts.append(current_value)
+        
+        try:
+            res = xirr(dates, amounts)
+            return res * 100 if res is not None else np.nan
+        except:
+            return np.nan
+
+    return assets_df.apply(_calc_asset_xirr, axis=1)
+
+
+def clean_asset_columns(assets_df: pd.DataFrame):
+    return assets_df[ASSET_COLUMNS]
+
+
+def round_asset_data(assets_df: pd.DataFrame):
+    assets_df[ASSET_COLUMNS_ROUNDING] = assets_df[ASSET_COLUMNS_ROUNDING].apply(pd.to_numeric, errors='raise')
+    assets_df[ASSET_COLUMNS_ROUNDING] = assets_df[ASSET_COLUMNS_ROUNDING].round(3)
+    return assets_df
+
+
+def asset_level_metrics(lot_data: pd.DataFrame, transaction_data: pd.DataFrame):
+    lot_data = lot_data.copy()
+    lot_data = add_required_calculated_columns(lot_data)
+
+    asset_data = aggregate_on_assets(lot_data)
+    asset_data["Realized PnL %"] = calc_asset_realized_pnl_pct(asset_data)
+    asset_data["Unrealized PnL %"] = calc_asset_unrealized_pnl_pct(asset_data)
+    asset_data['Total Return %'] = calc_asset_total_return_pct(asset_data)
+    asset_data['Average Entry Price'] = calc_asset_average_entry_price(asset_data)
+    asset_data['Percentage of Portfolio'] = calc_asset_portfolio_pct(asset_data)
+    asset_data['Annualized Gain %'] = calc_asset_annualized_gain(asset_data, transaction_data)
+    asset_data = clean_asset_columns(asset_data)
+    asset_data = round_asset_data(asset_data)
+    return asset_data
+
+
+######################   Portfolio Level Metrics   ######################
