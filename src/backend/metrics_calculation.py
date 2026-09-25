@@ -4,6 +4,7 @@ from pyxirr import xirr
 
 
 LOT_COLUMNS = [
+    "Portfolio",
     'Ticker', 
     'Status',
     'Buy Date',
@@ -88,6 +89,7 @@ def calculate_lots(transaction_data: pd.DataFrame):
     lots = []
 
     for row in transactions_dict:
+        portfolio = row.get("Portfolio")
         ticker = row.get("Ticker")
         transaction_date = row.get("Transaction Date")
         quantity = row.get("Quantity")
@@ -98,6 +100,7 @@ def calculate_lots(transaction_data: pd.DataFrame):
         if transaction_type == "BUY":
             # Open a new lot and instantiate some values based on the transaction
             lots.append({
+                "Portfolio": portfolio,
                 "Ticker": ticker,
                 "Buy Date": transaction_date,
                 "Initial Quantity": quantity,
@@ -118,7 +121,7 @@ def calculate_lots(transaction_data: pd.DataFrame):
                     # Nothing else to sell, go to next transaction
                     break
 
-                if lot["Ticker"] == ticker and lot["Status"] == "OPEN":
+                if lot["Portfolio"] == portfolio and lot["Ticker"] == ticker and lot["Status"] == "OPEN":
                     # Applicable lot
 
                     if lot["Current Quantity"] >= quantity_to_sell:
