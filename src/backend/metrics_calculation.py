@@ -47,6 +47,8 @@ ASSET_COLUMNS = [
     "Portfolio",
     "Ticker", 
     "Current Quantity",
+    "Cost Of Sold",
+    "Cost Of Remaining",
     "Total Cost",
     "Current Market Value",
     "Realized PnL",
@@ -61,6 +63,8 @@ ASSET_COLUMNS = [
 ]
 
 ASSET_COLUMNS_ROUNDING = [
+    "Cost Of Sold",
+    "Cost Of Remaining",
     "Total Cost",
     "Current Market Value",
     "Realized PnL",
@@ -73,6 +77,38 @@ ASSET_COLUMNS_ROUNDING = [
     "Total Return %",
     "Annualized Gain %"
 ]
+
+
+PORTFOLIO_COLUMNS = [
+    "Portfolio", 
+    "Current Market Value",
+    "Realized PnL",
+    "Realized PnL %",
+    "Unrealized PnL",
+    "Unrealized PnL %",
+    "Total Return",
+    "Total Return %",
+    "Cost Of Sold",
+    "Cost Of Remaining", 
+    "Total Cost",
+    "Total Fees",
+    "Annualized Gain %"
+    ]
+
+PORTFOLIO_COLUMNS_ROUNDING = [
+    "Current Market Value",
+    "Realized PnL",
+    "Realized PnL %",
+    "Unrealized PnL",
+    "Unrealized PnL %",
+    "Total Return",
+    "Total Return %",
+    "Cost Of Sold",
+    "Cost Of Remaining", 
+    "Total Cost",
+    "Total Fees",
+    "Annualized Gain %"
+    ]
 
 
 ######################  Transaction Level Metrics  ######################
@@ -111,6 +147,7 @@ def calculate_lots(transaction_data: pd.DataFrame):
                 "Sell Fee": 0.0,
                 "Realized PnL": 0.0,
                 "Status": "OPEN",
+                "Close_Date": pd.NaT
             })
 
         elif transaction_type == "SELL":
@@ -156,6 +193,7 @@ def calculate_lots(transaction_data: pd.DataFrame):
                     if lot["Current Quantity"] == 0:
                         # Update lot status
                         lot["Status"] = "CLOSED"
+                        lot["Close_Date"] = transaction_date
 
     return pd.DataFrame(lots)
 
@@ -188,7 +226,9 @@ def calc_days_held(lots_df: pd.DataFrame, as_of_date: pd.Timestamp = None) -> pd
         as_of_date = pd.Timestamp.today()
     
     buy_dates = pd.to_datetime(lots_df["Buy Date"])
-    return (as_of_date - buy_dates).dt.days
+    close_dates = pd.to_datetime(lots_df["Close_Date"])
+    end_dates = close_dates.fillna(as_of_date)
+    return (end_dates - buy_dates).dt.days
 
 
 def calc_total_pnl(lots_df: pd.DataFrame) -> pd.Series:
@@ -248,9 +288,9 @@ def lot_level_metrics(transaction_data: pd.DataFrame, current_prices: pd.DataFra
     lots["Annualized Gain %"] = calc_annualized_gain(lots)
     lots["Unrealized PnL %"] = calc_unrealized_pnl_pct(lots)
     lots["Realized PnL %"] = calc_realized_pnl_pct(lots)
-    lots = clean_lot_columns(lots)
-    lots = round_lot_data(lots)
-    return lots
+    lots_clean = clean_lot_columns(lots)
+    lots_clean = round_lot_data(lots_clean)
+    return lots_clean, lots
 
 
 ######################     Asset Level Metrics     ######################
@@ -369,9 +409,108 @@ def asset_level_metrics(lot_data: pd.DataFrame, transaction_data: pd.DataFrame):
     asset_data["Average Entry Price"] = calc_asset_average_entry_price(asset_data)
     asset_data["Percentage of Portfolio"] = calc_asset_portfolio_pct(asset_data)
     asset_data["Annualized Gain %"] = calc_asset_annualized_gain(asset_data, transaction_data)
-    asset_data = clean_asset_columns(asset_data)
-    asset_data = round_asset_data(asset_data)
-    return asset_data
+    
+    asset_data_clean = clean_asset_columns(asset_data)
+    asset_data_clean = round_asset_data(asset_data_clean)
+    return asset_data_clean, asset_data
 
 
 ######################   Portfolio Level Metrics   ######################
+def aggregate_on_portfolio(asset_data: pd.DataFrame):
+    aggs = {
+        "Total Fees": ("Total Fees", "sum"),
+        "Total Cost": ("Total Cost", "sum"),
+        "Current Market Value": ("Current Market Value", "sum"),
+        "Realized PnL": ("Realized PnL", "sum"),
+        "Unrealized PnL": ("Unrealized PnL", "sum"),
+        "Cost Of Remaining": ("Cost Of Remaining", "sum"),
+        "Cost Of Sold": ("Cost Of Sold", "sum"),
+    }
+    return asset_data.groupby("Portfolio").agg(**aggs).reset_index()
+
+
+def calc_portfolio_total_return(portfolio_data: pd.DataFrame):
+    return portfolio_data["Realized PnL"] + portfolio_data["Unrealized PnL"]
+
+
+def calc_portfolio_realized_pnl_pct(portfolio_data: pd.DataFrame):
+    return np.where(
+        portfolio_data["Cost Of Sold"] > 0, 
+        (portfolio_data["Realized PnL"] / portfolio_data["Cost Of Sold"]) * 100, 
+        0
+        )
+
+
+def calc_portfolio_unrealized_pnl_pct(portfolio_data: pd.DataFrame):
+    return np.where(
+        portfolio_data["Cost Of Remaining"] > 0, 
+        (portfolio_data["Unrealized PnL"] / portfolio_data["Cost Of Remaining"]) * 100, 
+        0
+        )
+
+
+def calc_portfolio_total_return_pct(portfolio_data: pd.DataFrame):
+    return np.where(portfolio_data["Total Cost"] > 0, 
+        (portfolio_data["Total Return"] / portfolio_data["Total Cost"]) * 100, 
+        0
+        )
+
+
+def calc_portfolio_annualized_gain(portfolio_data: pd.DataFrame, transaction_df: pd.DataFrame):
+
+    def _calc_portfolio_xirr(df_row):
+        portfolio = df_row["Portfolio"]
+        current_value = df_row["Current Market Value"]
+        
+        portfolio_trx = transaction_df[transaction_df["Portfolio"] == portfolio]
+
+        first_trx_date = pd.to_datetime(portfolio_trx["Transaction Date"].min())
+        today = pd.Timestamp.today()
+        if (today - first_trx_date).days < 365:
+            return np.nan
+
+        dates = list(portfolio_trx["Transaction Date"])
+        amounts = []
+        
+        for _, trx_row in portfolio_trx.iterrows():
+            fee = trx_row.get("Fee", 0.0)
+            if trx_row["Transaction Type"].upper() == "BUY":
+                amounts.append(-(trx_row["Quantity"] * trx_row["Transaction Price"] + fee))
+            elif trx_row["Transaction Type"].upper() == "SELL":
+                amounts.append((trx_row["Quantity"] * trx_row["Transaction Price"] - fee))
+                
+        dates.append(pd.Timestamp.today())
+        amounts.append(current_value)
+        
+        try:
+            res = xirr(dates, amounts)
+            return res * 100 if res is not None else np.nan
+        except:
+            return np.nan
+
+    return portfolio_data.apply(_calc_portfolio_xirr, axis=1)
+
+
+def clean_portfolio_columns(portfolio_data: pd.DataFrame):
+    return portfolio_data[PORTFOLIO_COLUMNS]
+
+
+def round_portfolio_data(portfolio_data: pd.DataFrame):
+    portfolio_data[PORTFOLIO_COLUMNS_ROUNDING] = portfolio_data[PORTFOLIO_COLUMNS_ROUNDING].apply(pd.to_numeric, errors="raise")
+    portfolio_data[PORTFOLIO_COLUMNS_ROUNDING] = portfolio_data[PORTFOLIO_COLUMNS_ROUNDING].round(3)
+    return portfolio_data
+
+
+def portfolio_level_metrics(asset_data: pd.DataFrame, transaction_data: pd.DataFrame):
+    asset_data = asset_data.copy()
+
+    portfolio_data = aggregate_on_portfolio(asset_data)
+    portfolio_data["Total Return"] = calc_portfolio_total_return(portfolio_data)
+    portfolio_data["Realized PnL %"] = calc_portfolio_realized_pnl_pct(portfolio_data)
+    portfolio_data["Unrealized PnL %"] = calc_portfolio_unrealized_pnl_pct(portfolio_data)
+    portfolio_data["Total Return %"] = calc_portfolio_total_return_pct(portfolio_data)
+    portfolio_data["Annualized Gain %"] = calc_portfolio_annualized_gain(portfolio_data, transaction_data)
+
+    portfolio_data_clean = clean_portfolio_columns(portfolio_data)
+    portfolio_data_clean = round_portfolio_data(portfolio_data_clean)
+    return portfolio_data_clean, portfolio_data
