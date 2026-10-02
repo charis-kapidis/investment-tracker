@@ -36,15 +36,15 @@ if not current_asset_data.empty:
     
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     kpi1.metric("Market Value", 
-                f"${asset_row.get("Current Market Value", 0):,.2f}")
+                f"${asset_row.get('Current Market Value', 0):,.2f}")
     kpi2.metric("Total Cost", 
-                f"${asset_row.get("Total Cost", 0):,.2f}")
+                f"${asset_row.get('Total Cost', 0):,.2f}")
     kpi3.metric("Unrealized PnL", 
-                f"${asset_row.get("Unrealized PnL", 0):,.2f}", 
-                f"{asset_row.get("Unrealized PnL %", 0):.2f}%")
+                f"${asset_row.get('Unrealized PnL', 0):,.2f}", 
+                f"{asset_row.get('Unrealized PnL %', 0):.2f}%")
     kpi4.metric("Realized PnL", 
-                f"${asset_row.get("Realized PnL", 0):,.2f}",
-                f"{asset_row.get("Realized PnL %", 0):.2f}%" if pd.notna(asset_row.get("Realized PnL %")) else None)
+                f"${asset_row.get('Realized PnL', 0):,.2f}",
+                f"{asset_row.get('Realized PnL %', 0):.2f}%" if pd.notna(asset_row.get("Realized PnL %")) else None)
 
 st.divider()
 
