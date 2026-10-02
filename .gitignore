@@ -2,7 +2,8 @@
 .venv/
 
 # Ignore data directory
-data/
+data/raw
+date/processed
 
 # Ignore notebooks that create transaction files
 notebooks/transaction_file_creator/
