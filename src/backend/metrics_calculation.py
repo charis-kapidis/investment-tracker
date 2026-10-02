@@ -58,6 +58,7 @@ ASSET_COLUMNS = [
     "Average Entry Price",
     "Total Fees",
     "Percentage of Portfolio",
+    "Total Return",
     "Total Return %",
     "Annualized Gain %"
 ]
@@ -74,6 +75,7 @@ ASSET_COLUMNS_ROUNDING = [
     "Average Entry Price",
     "Total Fees",
     "Percentage of Portfolio",
+    "Total Return",
     "Total Return %",
     "Annualized Gain %"
 ]
@@ -339,6 +341,10 @@ def calc_asset_unrealized_pnl_pct(assets_df: pd.DataFrame):
     return ((assets_df["Unrealized PnL"] / assets_df["Cost Of Remaining"].replace(0, np.nan)) * 100).replace(np.nan, 0)
 
 
+def calc_asset_total_return(assets_df: pd.DataFrame):
+    return (assets_df["Realized PnL"] + assets_df["Unrealized PnL"]).replace(np.nan, 0)
+
+
 def calc_asset_total_return_pct(assets_df: pd.DataFrame):
     return (((assets_df["Realized PnL"] + assets_df["Unrealized PnL"]) / assets_df["Total Cost"].replace(0, np.nan)) * 100).replace(np.nan, 0)
 
@@ -405,6 +411,7 @@ def asset_level_metrics(lot_data: pd.DataFrame, transaction_data: pd.DataFrame):
     asset_data = aggregate_on_assets(lot_data)
     asset_data["Realized PnL %"] = calc_asset_realized_pnl_pct(asset_data)
     asset_data["Unrealized PnL %"] = calc_asset_unrealized_pnl_pct(asset_data)
+    asset_data["Total Return"] = calc_asset_total_return(asset_data)
     asset_data["Total Return %"] = calc_asset_total_return_pct(asset_data)
     asset_data["Average Entry Price"] = calc_asset_average_entry_price(asset_data)
     asset_data["Percentage of Portfolio"] = calc_asset_portfolio_pct(asset_data)
@@ -514,3 +521,20 @@ def portfolio_level_metrics(asset_data: pd.DataFrame, transaction_data: pd.DataF
     portfolio_data_clean = clean_portfolio_columns(portfolio_data)
     portfolio_data_clean = round_portfolio_data(portfolio_data_clean)
     return portfolio_data_clean, portfolio_data
+
+
+######################     User Level Metrics      ######################
+def calc_user_current_market_value(portfolio_df: pd.DataFrame):
+    return portfolio_df["Current Market Value"].sum()
+
+
+def calc_user_total_cost(portfolio_df: pd.DataFrame):
+    return portfolio_df["Total Cost"].sum()
+
+
+def calc_user_unrealized_pnl(portfolio_df: pd.DataFrame):
+    return portfolio_df["Unrealized PnL"].sum()
+
+
+def calc_user_unrealized_pnl_pct(total_unrealized_pnl, total_cost):
+    return (total_unrealized_pnl / total_cost * 100) if total_cost > 0 else 0 
