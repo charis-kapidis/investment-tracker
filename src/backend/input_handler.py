@@ -4,7 +4,7 @@ import time
 import logging
 
 
-DEFAULT_FILENAME = "real_transactions.csv"
+DEFAULT_FILENAME = "dummy_transactions.csv"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -21,8 +21,8 @@ REQUIRED_COLUMNS = [
 REQUIRED_DATA_TYPES_CHECKS = {
     "Portfolio": lambda x: isinstance(x, str) or isinstance(x, int),                        # string or integer
     "Transaction Date": lambda x: 
-        (pd.to_datetime(x, format='%Y%m%d', errors='coerce') is not pd.NaT) or 
-        (pd.to_datetime(x, format='%Y-%m-%d', errors='coerce') is not pd.NaT),              # format should match YYYY-MM-DD or YYYYMMDD
+        (pd.to_datetime(x, format="%Y%m%d", errors="coerce") is not pd.NaT) or 
+        (pd.to_datetime(x, format="%Y-%m-%d", errors="coerce") is not pd.NaT),              # format should match YYYY-MM-DD or YYYYMMDD
     "Transaction Type": lambda x: isinstance(x, str),                                       # string
     "Ticker": lambda x: isinstance(x, str),                                                 # string
     "Quantity": lambda x: isinstance(x, int),                                               # integet
@@ -53,19 +53,22 @@ REQUIRED_DATA_VALIDITY_RULES = {
 TICKER_COLUMN = "Ticker"
 
 
-logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
 
-def load_transactional_data(filename: str):
-    data_folder = "data"
-    file_path = PROJECT_ROOT / data_folder / "raw" / filename
-    try:
-        data = pd.read_csv(file_path)
-        # print("✅ File loaded successfully\n")
-        logging.info(f"File loaded successfully")
-    except Exception as e:
-        # print(f"❌ Error: {e}")
-        logging.warning(f"File not loaded")
+def load_transactional_data(filename):
+    if isinstance(filename, str):
+        data_folder = "data"
+        file_path = PROJECT_ROOT / data_folder / "demo" / filename
+        try:
+            data = pd.read_csv(file_path)
+            # print("✅ File loaded successfully\n")
+            logging.info(f"File loaded successfully")
+        except Exception as e:
+            # print(f"❌ Error: {e}")
+            logging.warning(f"File not loaded")
+    else:
+        data = pd.read_csv(filename)
     return data
 
 
@@ -103,10 +106,10 @@ def check_data_types(data: pd.DataFrame):
 
     data = data.astype(required_data_types)           
                
-    if any(data["Transaction Date"].apply(lambda x: (pd.to_datetime(x, format='%Y%m%d', errors='coerce') is not pd.NaT))):
-        data["Transaction Date"] = pd.to_datetime(data["Transaction Date"], format='%Y%m%d', errors='coerce')
+    if any(data["Transaction Date"].apply(lambda x: (pd.to_datetime(x, format="%Y%m%d", errors="coerce") is not pd.NaT))):
+        data["Transaction Date"] = pd.to_datetime(data["Transaction Date"], format="%Y%m%d", errors="coerce")
     else:
-        data["Transaction Date"] = pd.to_datetime(data["Transaction Date"], format='%Y-%m-%d', errors='coerce')          
+        data["Transaction Date"] = pd.to_datetime(data["Transaction Date"], format="%Y-%m-%d", errors="coerce")          
 
     logging.info(f"Passed all data type rules")
     # print("✅ Passed all data type rules!\n")
@@ -136,7 +139,7 @@ def get_tickers(data: pd.DataFrame):
     tickers = data[TICKER_COLUMN].unique().tolist()
     return tickers
 
-def input_handling(filename: str):
+def input_handling(filename):
     if filename == "":
         filename = DEFAULT_FILENAME
 
