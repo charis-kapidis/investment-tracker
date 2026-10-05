@@ -10,3 +10,9 @@ notebooks/transaction_file_creator/
 
 # Ignore pychache folders
 __pycache__/
+
+# Ignore DB config
+.streamlit/secrets.toml
+
+# Ignore DB connection test
+test_db.py
